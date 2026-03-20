@@ -34,23 +34,37 @@ public class DifficultyAnalyzer {
 
     private String buildPrompt(List<String> courseNames) {
         StringBuilder sb = new StringBuilder();
-        sb.append("You are an academic advisor. Rate the difficulty of each course below on a scale from 1 to 5:\n");
-        sb.append("  1 = Very easy\n  2 = Easy\n  3 = Medium\n  4 = Hard\n  5 = Very hard\n\n");
-        sb.append("Courses:\n");
+        sb.append("You are an experienced academic advisor and curriculum designer.\n");
+        sb.append("Rate the academic difficulty of each course below on a scale from 1 to 5,\n");
+        sb.append("considering ALL of the following dimensions:\n\n");
+        sb.append("  - Conceptual difficulty: How abstract or complex are the core ideas?\n");
+        sb.append("  - Mathematical complexity: Does it require significant quantitative reasoning?\n");
+        sb.append("  - Memorization load: How much content must be memorized vs. understood?\n");
+        sb.append("  - Problem-solving demand: Does it require applying knowledge to novel problems?\n\n");
+        sb.append("Difficulty scale:\n");
+        sb.append("  1 = Very easy   (minimal effort, mostly review)\n");
+        sb.append("  2 = Easy        (straightforward, light workload)\n");
+        sb.append("  3 = Medium      (moderate effort, some challenging concepts)\n");
+        sb.append("  4 = Hard        (high workload, abstract reasoning required)\n");
+        sb.append("  5 = Very hard   (extremely demanding, significant time investment)\n\n");
+        sb.append("Courses to rate:\n");
         for (String name : courseNames) {
             sb.append("- ").append(name).append("\n");
         }
-        sb.append("\nRespond ONLY with lines in the format:\n");
-        sb.append("CourseName - DifficultyNumber\n\n");
-        sb.append("Example:\nMathematics - 5\nHistory - 2\n\nDo not include any additional text.");
+        sb.append("\nRules:\n");
+        sb.append("- Respond ONLY with one line per course, in this exact format:\n");
+        sb.append("  CourseName - DifficultyNumber\n");
+        sb.append("- Do NOT include explanations, headers, or any other text.\n");
+        sb.append("- Use the EXACT course name as provided.\n\n");
+        sb.append("Example output:\n");
+        sb.append("Calculus II - 5\n");
+        sb.append("World History - 2\n");
+        sb.append("Intro to Programming - 3\n");
         return sb.toString();
     }
 
     /**
-     * Calls the AI REST API with the given prompt using the Anthropic Messages format.
-     *
-     * @param prompt the user prompt text
-     * @return the raw text content from the AI response
+     * Llama a la API REST de IA con el mensaje proporcionado
      */
     @SuppressWarnings("unchecked")
     private String callAiApi(String prompt) {
@@ -59,7 +73,6 @@ public class DifficultyAnalyzer {
         headers.setBearerAuth(aiConfig.getAiApiKey());
         headers.set("HTTP-Referer", "http://localhost:8080");
         headers.set("X-Title", "study-planner");
-        // Build the Anthropic Messages API request body
         Map<String, Object> requestBody = new LinkedHashMap<>();
         requestBody.put("model", aiConfig.getAiModel());
         requestBody.put("max_tokens", aiConfig.getMaxTokens());
@@ -75,7 +88,6 @@ public class DifficultyAnalyzer {
                 Map.class
         );
 
-        // Extract text from the Anthropic response: content[0].text
         Map<String, Object> body = response.getBody();
         if (body == null) {
             throw new IllegalStateException("Empty response body from AI API");
@@ -92,22 +104,51 @@ public class DifficultyAnalyzer {
 
     private Map<String, Integer> parseResponse(String rawResponse, List<String> courseNames) {
         Map<String, Integer> difficulties = new LinkedHashMap<>();
-        // Initialize all courses with fallback difficulty 3
         for (String name : courseNames) {
-            difficulties.put(name, 3);
+            difficulties.put(name, 3); // fallback por defecto
         }
-        // Pattern: "CourseName - 4"  (allows multi-word names)
-        Pattern pattern = Pattern.compile("^(.+?)\\s*-\\s*(\\d)\\s*$");
-        for (String line : rawResponse.split("\\n")) {
-            Matcher matcher = pattern.matcher(line.trim());
-            if (matcher.matches()) {
-                String parsedName  = matcher.group(1).trim();
-                int    parsedLevel = Integer.parseInt(matcher.group(2));
-                int    clamped     = Math.max(1, Math.min(5, parsedLevel)); // clamp to [1, 5]
 
-                // Match against known course names (case-insensitive)
+        if (rawResponse == null || rawResponse.isBlank()) {
+            log.warn("AI returned empty response; using fallback difficulties.");
+            return difficulties;
+        }
+
+        // Patrón tolerante: permite espacios adicionales, texto final opcional y dígitos del 1 al 5.
+        // Coincide con: "CourseName - 4" o "CourseName - 4 (Hard)" o "CourseName: 4"
+        Pattern pattern = Pattern.compile(
+                "^(.+?)\\s*[-:]\\s*([1-5])(?:\\s.*)?$",
+                Pattern.CASE_INSENSITIVE
+        );
+
+        for (String line : rawResponse.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank()) continue;
+
+            Matcher matcher = pattern.matcher(trimmed);
+            if (!matcher.matches()) {
+                log.debug("Skipping unrecognized line from AI response: '{}'", trimmed);
+                continue;
+            }
+
+            String parsedName  = matcher.group(1).trim();
+            int    parsedLevel = Integer.parseInt(matcher.group(2));
+            int    clamped     = Math.max(1, Math.min(5, parsedLevel));
+
+            // Exact match first, then case-insensitive, then partial/fuzzy
+            boolean matched = false;
+            for (String name : courseNames) {
+                if (name.equalsIgnoreCase(parsedName)) {
+                    difficulties.put(name, clamped);
+                    matched = true;
+                    break;
+                }
+            }
+            // Fuzzy fallback: check if one contains the other (handles minor AI rephrasing)
+            if (!matched) {
                 for (String name : courseNames) {
-                    if (name.equalsIgnoreCase(parsedName)) {
+                    if (name.toLowerCase().contains(parsedName.toLowerCase())
+                            || parsedName.toLowerCase().contains(name.toLowerCase())) {
+                        log.debug("Fuzzy-matched AI response '{}' to course '{}'", parsedName, name);
                         difficulties.put(name, clamped);
                         break;
                     }
@@ -118,9 +159,8 @@ public class DifficultyAnalyzer {
     }
 
     /**
-     * Builds a fallback difficulty map assigning level 3 to every course.
-     *
-     * @param courseNames the list of course names
+     * Crea un mapa de dificultad de reserva asignando el nivel 3 a cada curso.
+     * @param courseNames lista nombre de cursos
      * @return map with all difficulties set to 3
      */
     private Map<String, Integer> buildFallbackDifficulties(List<String> courseNames) {

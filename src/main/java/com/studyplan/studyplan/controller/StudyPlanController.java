@@ -2,7 +2,9 @@ package com.studyplan.studyplan.controller;
 
 import com.studyplan.studyplan.dto.PlanRequest;
 import com.studyplan.studyplan.dto.PlanResponse;
+import com.studyplan.studyplan.model.StudySession;
 import com.studyplan.studyplan.service.StudyPlanService;
+import com.studyplan.studyplan.service.StuddySessionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 public class StudyPlanController {
 
     private final StudyPlanService studyPlanService;
+    private final StuddySessionService studySessionService;
 
     @PostMapping("/generate")
     public ResponseEntity<PlanResponse> generatePlan(@Valid @RequestBody PlanRequest request) {
@@ -25,6 +28,14 @@ public class StudyPlanController {
 
         PlanResponse response = studyPlanService.generatePlan(request);
         return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/sessions/{id}")
+    public ResponseEntity<StudySession> updateSession(
+            @PathVariable Long id,
+            @RequestBody PlanRequest.UpdateSessionRequest request) {
+
+        return ResponseEntity.ok(studySessionService.updateSession(id, request));
     }
 
     @GetMapping("/health")
