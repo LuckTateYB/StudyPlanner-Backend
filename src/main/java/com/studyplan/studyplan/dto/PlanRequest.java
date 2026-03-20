@@ -15,6 +15,14 @@ import java.util.List;
 @Builder
 public class PlanRequest {
 
+    /**
+     * ID del usuario que solicita el plan.
+     * Solución temporal hasta implementar JWT — cuando haya autenticación,
+     * este campo desaparece y el userId se extrae del token en el SecurityContext.
+     */
+    @NotNull(message = "userId must not be null")
+    private Long userId;
+
     /** Lista de cursos del estudiante */
     @NotEmpty(message = "At least one course must be provided")
     @Valid
@@ -31,7 +39,7 @@ public class PlanRequest {
      */
     @Min(value = 1, message = "hoursPerDay must be at least 1")
     @Max(value = 12, message = "hoursPerDay must not exceed 12")
-    private int hoursPerDay;
+    private Double hoursPerDay;
 
     /**
      * Bloque horario preferido para estudiar cada día.

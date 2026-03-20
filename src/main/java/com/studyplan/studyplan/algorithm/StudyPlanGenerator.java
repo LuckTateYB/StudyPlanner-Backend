@@ -183,9 +183,7 @@ public class StudyPlanGenerator {
             int globalRemaining = remainingSessions.values().stream().mapToInt(Integer::intValue).sum();
 
             int idealSlotsToday = (int) Math.ceil((double) globalRemaining / remainingDays);
-            int slotsAvailable  = Math.min(preferences.getHoursPerDay(), Math.max(2, idealSlotsToday));
-
-            log.debug("Day {} — globalRemaining={}, remainingDays={}, idealSlots={}, slotsAvailable={}",
+            int slotsAvailable = Math.min(preferences.getHoursPerDay().intValue(), Math.max(2, idealSlotsToday));            log.debug("Day {} — globalRemaining={}, remainingDays={}, idealSlots={}, slotsAvailable={}",
                     currentDay, globalRemaining, remainingDays, idealSlotsToday, slotsAvailable);
 
             // Track how many slots each course has consumed TODAY (anti-concentration guard)

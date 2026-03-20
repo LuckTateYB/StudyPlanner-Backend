@@ -1,5 +1,6 @@
 package com.studyplan.studyplan.service;
 import com.studyplan.studyplan.model.Course;
+import com.studyplan.studyplan.model.User;
 import com.studyplan.studyplan.repository.CourseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,10 +17,15 @@ import java.util.Optional;
 public class CourseService {
 
     private final CourseRepository courseRepository;
-    public Course findOrCreate(String name) {
-        return courseRepository.findByName(name).orElseGet(() -> {
-            log.debug("Creating new course: '{}'", name);
-            Course newCourse = Course.builder().name(name).build();
+
+    public Course findOrCreate(String name, User user) {
+        return courseRepository.findByNameAndUser(name, user).orElseGet(() -> {
+            log.debug("Creating new course '{}' for userId={}", name, user.getId());
+            Course newCourse = Course.builder()
+                    .name(name)
+                    .user(user)
+                    .difficultyLevel(3) // valor por defecto; el algoritmo lo ajusta via IA
+                    .build();
             return courseRepository.save(newCourse);
         });
     }

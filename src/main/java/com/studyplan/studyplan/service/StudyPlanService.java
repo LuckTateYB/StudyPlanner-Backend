@@ -1,14 +1,18 @@
 package com.studyplan.studyplan.service;
+
 import com.studyplan.studyplan.algorithm.StudyPlanGenerator;
 import com.studyplan.studyplan.dto.PlanRequest;
 import com.studyplan.studyplan.dto.PlanResponse;
 import com.studyplan.studyplan.model.*;
 import com.studyplan.studyplan.repository.ExamRepository;
+import com.studyplan.studyplan.repository.StudyPlanRepository;
+import com.studyplan.studyplan.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -18,30 +22,39 @@ import java.util.stream.Collectors;
 @Transactional
 public class StudyPlanService {
 
-    private final CourseService       courseService;
-    private final ExamRepository      examRepository;
-    private final StudyPlanGenerator  studyPlanGenerator;
+    private final CourseService      courseService;
+    private final ExamRepository     examRepository;
+    private final StudyPlanGenerator studyPlanGenerator;
+    private final StudyPlanRepository studyPlanRepository;
+    private final UserRepository     userRepository;
 
     public PlanResponse generatePlan(PlanRequest request) {
-        log.info("Generating study plan — courses: {}, exams: {}, hours/day: {}, window: {}",
-                request.getCourses().size(),
-                request.getExams().size(),
-                request.getHoursPerDay(),
-                request.getPreferredStudyTime());
+        log.info("Generating plan — userId={}, courses={}, hours/day={}",
+                request.getUserId(), request.getCourses().size(), request.getHoursPerDay());
 
         // ------------------------------------------------------------------
-        // 1. Persist courses (reuse existing if already saved)
+        // 1. Resolver el usuario desde el userId del request.
+        //    Cuando se implemente JWT, esta línea se reemplaza por:
+        //    User user = (User) SecurityContextHolder.getContext()
+        //                       .getAuthentication().getPrincipal();
+        // ------------------------------------------------------------------
+        User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new RuntimeException(
+                        "User not found with id: " + request.getUserId()));
+
+        // ------------------------------------------------------------------
+        // 2. Persistir cursos asociados al usuario
         // ------------------------------------------------------------------
         List<Course> courses = request.getCourses().stream()
-                .map(input -> courseService.findOrCreate(input.getName()))
+                .map(input -> courseService.findOrCreate(input.getName(), user))
                 .collect(Collectors.toList());
 
-        // Build a fast lookup map: courseName → Course entity
         Map<String, Course> courseByName = courses.stream()
                 .collect(Collectors.toMap(Course::getName, c -> c));
 
+
         // ------------------------------------------------------------------
-        // 2. Persist exams, linking each to its course
+        // 3. Persistir exámenes vinculados a sus cursos
         // ------------------------------------------------------------------
         List<Exam> exams = request.getExams().stream()
                 .filter(input -> courseByName.containsKey(input.getCourse()))
@@ -56,36 +69,41 @@ public class StudyPlanService {
                 .collect(Collectors.toList());
 
         // ------------------------------------------------------------------
-        // 3. Build user preferences value object
+        // 4. Construir preferencias del usuario
         // ------------------------------------------------------------------
         UserPreferences preferences = UserPreferences.builder()
                 .hoursPerDay(request.getHoursPerDay())
                 .preferredStudyTime(request.getPreferredStudyTime())
                 .build();
-
         // ------------------------------------------------------------------
-        // 4. Run the scheduling algorithm
+        // 5. Ejecutar el algoritmo de planificación
         // ------------------------------------------------------------------
         List<StudySession> sessions = studyPlanGenerator.generate(courses, exams, preferences);
 
         // ------------------------------------------------------------------
-        // 5. Persist the study plan and its sessions
+        // 6. Persistir el plan vinculado al usuario.
+        //    UNIQUE sobre user_id garantiza un solo plan activo por usuario.
+        //    Si ya existe uno, se elimina antes de guardar el nuevo.
         // ------------------------------------------------------------------
-        StudyPlan plan = StudyPlan.builder().build();
+        studyPlanRepository.findByUser(user).ifPresent(studyPlanRepository::delete);
 
-        // Link every session to the plan before saving
+        StudyPlan plan = StudyPlan.builder()
+                .user(user)
+                .dailyAvailableHours(request.getHoursPerDay())
+                .startDate(LocalDate.now())
+                .endDate(sessions.isEmpty() ? LocalDate.now()
+                        : sessions.get(sessions.size() - 1).getDate())
+                .build();
+
         sessions.forEach(s -> s.setStudyPlan(plan));
         plan.getSessions().addAll(sessions);
+        studyPlanRepository.save(plan);
 
         // ------------------------------------------------------------------
-        // 6. Map to response DTO grouped by date
+        // 7. Construir y retornar el response agrupado por día
         // ------------------------------------------------------------------
         return buildResponse(sessions);
     }
-
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
 
     private PlanResponse buildResponse(List<StudySession> sessions) {
 

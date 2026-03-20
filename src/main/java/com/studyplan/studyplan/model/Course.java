@@ -1,12 +1,16 @@
 package com.studyplan.studyplan.model;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.*;
 import lombok.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "courses")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -15,18 +19,32 @@ public class Course {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Display name of the course (e.g., "Mathematics", "Programming"). */
-    @NotBlank(message = "Course name must not be blank")
-    @Column(nullable = false, unique = true)
+    /**
+     * Usuario propietario del curso.
+     * Cada curso está aislado por identidad de usuario.
+     */
+    @NotNull
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    @NotBlank(message = "El nombre del curso es obligatorio")
+    @Size(min = 2, max = 100, message = "El nombre debe tener entre 2 y 100 caracteres")
+    @Column(nullable = false)
     private String name;
 
     /**
-     * Difficulty level estimated by the AI.
-     * Range: 1 (very easy) to 5 (very hard).
-     * Default is 3 (medium) before AI estimation.
+     * Nivel de dificultad del curso en escala 1–5.
+     * Usado por el algoritmo con peso 0.4 en el score de prioridad.
      */
-    @Column(name = "difficulty_level")
+    @NotNull(message = "El nivel de dificultad es obligatorio")
+    @Min(value = 1, message = "La dificultad mínima es 1")
+    @Max(value = 5, message = "La dificultad máxima es 5")
+    @Column(name = "difficulty_level", nullable = false)
+    private Integer difficultyLevel;
+
+    @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
-    private int difficultyLevel = 3;
+    private List<Exam> exams = new ArrayList<>();
 
 }
